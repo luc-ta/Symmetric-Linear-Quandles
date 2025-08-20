@@ -1,0 +1,144 @@
+local maxN, n, k, d, FixList, kinv, OrbitOf, orbits, foundAny, t, m, a, assigned, orb, count, Testing, assign, psi, x, lhs, rhsArg, rhs, ok, rho, invol, v, i, idx, queue, orbitSet, y1, y2;
+
+# recursively test functions psi : O -> FixList
+	Testing := function(idx, assign)
+        local orb, v, i, psi, x, lhs, rhsArg, rhs, ok, rho, invol;
+        if idx > Length(orbits) then
+			# construct psi as an array indexed by x+1
+			psi := [];
+			for i in [1..Length(orbits)] do
+				orb := orbits[i];
+				for x in orb do psi[x+1] := assign[i]; od;
+			od;
+
+			# test identity psi(x) = psi( psi(x) - k*x ) for all x
+			ok := true;
+			for x in [0..n-1] do
+				lhs := psi[x+1];
+				rhsArg := (lhs - k*x) mod n;
+				rhs := psi[rhsArg+1];
+				if lhs <> rhs then ok := false; break; fi;
+			od;
+
+			if ok then
+				# compute rho and verify involution
+				rho := [];
+				for x in [0..n-1] do rho[x+1] := (psi[x+1] - k*x) mod n; od;
+				invol := true;
+				for x in [0..n-1] do
+					if rho[ rho[x+1] + 1 ] <> x then invol := false; break; fi;
+				od;
+				if not invol then
+					Print("Warning: rho is not an involution for n=",n,", k=",k,"\n");
+				fi;
+
+				# print rho (images of 0..n-1)
+				Print("Solution for n=",n,", k=",k,", d=",d,": rho = [");
+				for x in [0..n-1] do
+					if x <> 0 then Print(", "); fi;
+					Print(rho[x+1]);
+				od;
+				Print("]\n");
+
+				count := count + 1;
+			fi;
+
+			return;
+        fi;
+
+        for v in FixList do
+			assign[idx] := v;
+			Testing(idx+1, assign);
+        od;
+    end;
+	  
+    # compute orbits under the action of Inn Q
+    OrbitOf := function(a)
+        local orbitSet, queue, idx, x, m, y1, y2;
+        orbitSet := [a];
+        queue := [a];
+        idx := 1;
+        while idx <= Length(queue) do
+			x := queue[idx];
+			idx := idx + 1;
+			for m in [0..n-1] do
+				y1 := (k*x - (k-1)*m) mod n;
+				if not y1 in orbitSet then
+					Add(orbitSet, y1);
+					Add(queue, y1);
+				fi;
+				y2 := (kinv*(x + (k-1)*m)) mod n;  # inverse generator
+				if not y2 in orbitSet then
+					Add(orbitSet, y2);
+					Add(queue, y2);
+				fi;
+			od;
+        od;
+        return orbitSet;
+    end;
+
+# Main routine: Find all functions psi : O -> Fix_k satisfying psi(x) = psi(psi(x)-k*x)
+# For each n=3..maxN, and each unit k of order 2 in (Z/nZ)^x, this program:
+#  - computes d = gcd(n,k-1) and Fix_k = <n/d> (list of d elements)
+#  - forms the inner automorphisms s_m(x) = k*x - (k-1)*m (m=0..n-1)
+#  - computes orbits O under the action of Inn Q
+#  - iterates through all maps psi : O -> Fix_k and tests whether psi(x) = psi(psi(x)-k*x)
+#  - for each psi that satisfies the identity, prints the good involution rho(x)=psi(x)-k*x
+#    and increments a counter
+#  - prints a summary count for each (n,k)
+
+maxN := 29;  # change as desired
+
+for n in [3..maxN] do
+	Print("\n=== n = ", n, " ===\n");
+	foundAny := false;
+
+	for k in [1..n-1] do
+		if Gcd(k,n) = 1 and (k*k) mod n = 1 and k mod n <> 1 then
+			# k is a unit of order 1 or 2; we exclude k=1 so this is order 2
+			d := Gcd(n, k-1);
+			# list of elements of Fix_k (as integers 0..n-1)
+			FixList := List([0..d-1], t -> (t*(n/d)) mod n);
+
+			# find inverse of k mod n by brute force
+			kinv := fail;
+			for t in [1..n-1] do
+				if (k*t) mod n = 1 then kinv := t; break; fi;
+			od;
+			if kinv = fail then
+				Error("No inverse found for k (shouldn't happen)\n");
+			fi;
+
+			# compute all orbits
+			orbits := [];
+			for a in [0..n-1] do
+				# check if a already in some orbit
+				assigned := false;
+				for orb in orbits do
+					if a in orb then assigned := true; break; fi;
+				od;
+				if not assigned then
+					Add(orbits, OrbitOf(a));
+				fi;
+			od;
+
+			# count solutions psi
+			count := 0;
+
+			Testing(1, List([1..Length(orbits)], i -> 0));
+
+			if count > 0 then
+				Print("Total solutions for n=",n,", k=",k,": ", count, "\n");
+			else
+				Print("No solutions for n=",n,", k=",k,"\n");
+			fi;
+
+			foundAny := true;
+		fi;
+	od;
+
+	if not foundAny then
+		Print("No elements of order 2 in (Z/",n,"Z)^x (excluding 1).\n");
+	fi;
+
+od;
