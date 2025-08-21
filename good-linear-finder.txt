@@ -1,37 +1,27 @@
-local maxN, n, k, d, FixList, kinv, OrbitOf, orbits, foundAny, t, m, a, assigned, orb, count, Testing, assign, psi, x, lhs, rhsArg, rhs, ok, rho, invol, v, i, idx, queue, orbitSet, y1, y2;
+local n, k, d, FixList, kInv, orbitOf, listOfOrbits, ell, m, a, alreadyInOrbit, currentOrbit, solnsCount, testPsiLocalCandidate, psiLocalCandidate, psi, x, psiArg, isGood, rho, v, i, recursionDepth, orbitSoFar, orbitSet, smOfX, smInvOfX, depthOfBFS;
 
-# recursively test functions psi : O -> FixList
-	Testing := function(idx, assign)
-        local orb, v, i, psi, x, lhs, rhsArg, rhs, ok, rho, invol;
-        if idx > Length(orbits) then
+# recursively test functions psi: (Z/nZ)/Inn Q -> Fix(phi_k)
+	testPsiLocalCandidate := function(recursionDepth, psiLocalCandidate)
+        local currentOrbit, v, i, psi, x, psiArg, isGood, rho, invol;
+        if recursionDepth > Length(listOfOrbits) then
 			# construct psi as an array indexed by x+1
 			psi := [];
-			for i in [1..Length(orbits)] do
-				orb := orbits[i];
-				for x in orb do psi[x+1] := assign[i]; od;
+			for i in [1..Length(listOfOrbits)] do
+				currentOrbit := listOfOrbits[i];
+				for x in currentOrbit do psi[x+1] := psiLocalCandidate[i]; od;
 			od;
 
-			# test identity psi(x) = psi( psi(x) - k*x ) for all x
-			ok := true;
+			# Does psi satisfy the equality psi(x) = psi(psi(x) - kx)?
+			isGood := true;
 			for x in [0..n-1] do
-				lhs := psi[x+1];
-				rhsArg := (lhs - k*x) mod n;
-				rhs := psi[rhsArg+1];
-				if lhs <> rhs then ok := false; break; fi;
+				psiArg := (psi[x+1] - k*x) mod n;
+				if psi[x+1] <> psi[psiArg+1] then isGood := false; break; fi;
 			od;
 
-			if ok then
-				# compute rho and verify involution
+			if isGood then
+				# print what rho actually is
 				rho := [];
 				for x in [0..n-1] do rho[x+1] := (psi[x+1] - k*x) mod n; od;
-				invol := true;
-				for x in [0..n-1] do
-					if rho[ rho[x+1] + 1 ] <> x then invol := false; break; fi;
-				od;
-				if not invol then
-					Print("Warning: rho is not an involution for n=",n,", k=",k,"\n");
-				fi;
-
 				# print rho (images of 0..n-1)
 				Print("Solution for n=",n,", k=",k,", d=",d,": rho = [");
 				for x in [0..n-1] do
@@ -40,105 +30,89 @@ local maxN, n, k, d, FixList, kinv, OrbitOf, orbits, foundAny, t, m, a, assigned
 				od;
 				Print("]\n");
 
-				count := count + 1;
+				solnsCount := solnsCount + 1;
 			fi;
 
 			return;
         fi;
 
         for v in FixList do
-			assign[idx] := v;
-			Testing(idx+1, assign);
+			psiLocalCandidate[recursionDepth] := v;
+			testPsiLocalCandidate(recursionDepth+1, psiLocalCandidate);
         od;
     end;
 	  
-    # compute orbits under the action of Inn Q
-    OrbitOf := function(a)
-        local orbitSet, queue, idx, x, m, y1, y2;
-        orbitSet := [a];
-        queue := [a];
-        idx := 1;
-        while idx <= Length(queue) do
-			x := queue[idx];
-			idx := idx + 1;
+    # compute the listOfOrbits of Z/nZ under the action of Inn Q using an exhaustive, BFS-like search
+    orbitOf := function(a)
+        local seenYet, orbitSoFar, depthOfBFS, x, m, smOfX, smInvOfX;
+		# seenYet[i+1] = true if and only if we've seen i already
+        seenYet := List([0..n-1], i -> false);
+        orbitSoFar := [a];
+        depthOfBFS := 1;
+        while depthOfBFS <= Length(orbitSoFar) do
+			x := orbitSoFar[depthOfBFS];
+			depthOfBFS := depthOfBFS + 1;
 			for m in [0..n-1] do
-				y1 := (k*x - (k-1)*m) mod n;
-				if not y1 in orbitSet then
-					Add(orbitSet, y1);
-					Add(queue, y1);
+			# compute image of x under the inner automorphism s_m and its inverse
+				smOfX := (k*x - (k-1)*m) mod n;
+				if not seenYet[smOfX+1] then
+					seenYet[smOfX+1] := true;
+					Add(orbitSoFar, smOfX);
 				fi;
-				y2 := (kinv*(x + (k-1)*m)) mod n;  # inverse generator
-				if not y2 in orbitSet then
-					Add(orbitSet, y2);
-					Add(queue, y2);
+				smInvOfX := (kInv*(x + (k-1)*m)) mod n;
+				if not seenYet[smInvOfX+1] then
+					seenYet[smInvOfX+1] := true;
+					Add(orbitSoFar, smInvOfX);
 				fi;
 			od;
         od;
-        return orbitSet;
+        return orbitSoFar;
     end;
 
-# Main routine: Find all functions psi : O -> Fix_k satisfying psi(x) = psi(psi(x)-k*x)
-# For each n=3..maxN, and each unit k of order 2 in (Z/nZ)^x, this program:
-#  - computes d = gcd(n,k-1) and Fix_k = <n/d> (list of d elements)
-#  - forms the inner automorphisms s_m(x) = k*x - (k-1)*m (m=0..n-1)
-#  - computes orbits O under the action of Inn Q
-#  - iterates through all maps psi : O -> Fix_k and tests whether psi(x) = psi(psi(x)-k*x)
-#  - for each psi that satisfies the identity, prints the good involution rho(x)=psi(x)-k*x
-#    and increments a counter
-#  - prints a summary count for each (n,k)
+# Main routine: Find all functions psi: (Z/nZ)/Inn Q -> Fix_k satisfying psi(x) = psi(psi(x) - kx)
+# For each order n >= 3 and each element k having order 2 in (Z/nZ)^x:
+#  - compute d = gcd(n,k-1) and Fix_k = <n/d> (= Z/dZ)
+#  - construct the inner automorphisms s_m(x) = kx - (k-1)m and their inverses for all m = 0..n-1
+#  - compute listOfOrbits = (Z/nZ)/Inn Q
+#  - for each psi satisfying the above, record the good involution rho(x)=psi(x)-kx
 
-maxN := 29;  # change as desired
-
-for n in [3..maxN] do
+for n in [3..9] do # change orders as desired
 	Print("\n=== n = ", n, " ===\n");
-	foundAny := false;
-
 	for k in [1..n-1] do
 		if Gcd(k,n) = 1 and (k*k) mod n = 1 and k mod n <> 1 then
 			# k is a unit of order 1 or 2; we exclude k=1 so this is order 2
 			d := Gcd(n, k-1);
 			# list of elements of Fix_k (as integers 0..n-1)
-			FixList := List([0..d-1], t -> (t*(n/d)) mod n);
+			FixList := List([0..d-1], ell -> (ell*(n/d)) mod n);
 
 			# find inverse of k mod n by brute force
-			kinv := fail;
-			for t in [1..n-1] do
-				if (k*t) mod n = 1 then kinv := t; break; fi;
+			for ell in [1..n-1] do
+				if (k*ell) mod n = 1 then kInv := ell; break; fi;
 			od;
-			if kinv = fail then
-				Error("No inverse found for k (shouldn't happen)\n");
-			fi;
 
-			# compute all orbits
-			orbits := [];
+			# compute all listOfOrbits
+			listOfOrbits := [];
 			for a in [0..n-1] do
-				# check if a already in some orbit
-				assigned := false;
-				for orb in orbits do
-					if a in orb then assigned := true; break; fi;
+				# Is a already in an orbit?
+				alreadyInOrbit := false;
+				for currentOrbit in listOfOrbits do
+					if a in currentOrbit then alreadyInOrbit := true; break; fi;
 				od;
-				if not assigned then
-					Add(orbits, OrbitOf(a));
+				if not alreadyInOrbit then
+					Add(listOfOrbits, orbitOf(a));
 				fi;
 			od;
 
-			# count solutions psi
-			count := 0;
+			# solnsCount solutions psi
+			solnsCount := 0;
 
-			Testing(1, List([1..Length(orbits)], i -> 0));
+			testPsiLocalCandidate(1, List([1..Length(listOfOrbits)], i -> 0));
 
-			if count > 0 then
-				Print("Total solutions for n=",n,", k=",k,": ", count, "\n");
+			if solnsCount > 0 then
+				Print("Total solutions for n=",n,", k=",k,": ", solnsCount, "\n");
 			else
 				Print("No solutions for n=",n,", k=",k,"\n");
 			fi;
-
-			foundAny := true;
 		fi;
 	od;
-
-	if not foundAny then
-		Print("No elements of order 2 in (Z/",n,"Z)^x (excluding 1).\n");
-	fi;
-
 od;
